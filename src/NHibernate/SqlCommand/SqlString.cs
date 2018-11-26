@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Collections;
+using System.Text.RegularExpressions;
 
 namespace NHibernate.SqlCommand
 {
@@ -555,6 +556,19 @@ namespace NHibernate.SqlCommand
 		public SqlString[] Split(string splitter)
 		{
 			return SplitParts(splitter).ToArray();
+		}
+
+		internal SqlString[] SplitWithRegex(string pattern)
+		{
+			var sql = Regex.Split(ToString(), pattern).Select(s => SqlString.Parse(s)).ToArray();
+			var parameters = _parameters.Values;
+			int i = 0;
+			foreach (var p in sql.SelectMany(s => s.GetParameters()))
+			{
+				p.BackTrack = parameters[i].BackTrack;
+				i++;
+			}
+			return sql;
 		}
 
 		private IEnumerable<SqlString> SplitParts(string splitter)

@@ -1,9 +1,9 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using NHibernate.Linq.ExpressionTransformers;
 using Remotion.Linq;
 using Remotion.Linq.Clauses;
 using Remotion.Linq.Clauses.StreamedData;
@@ -17,28 +17,28 @@ namespace NHibernate.Linq
 {
 	public static class NhRelinqQueryParser
 	{
-		private static readonly QueryParser _queryParser;
+		private static readonly QueryParser QueryParser;
 
 		static NhRelinqQueryParser()
 		{
-			var nodeTypeProvider = new NHibernateNodeTypeProvider();
-
 			var transformerRegistry = ExpressionTransformerRegistry.CreateDefault();
-			// Register custom expression transformers here:
-			// transformerRegistry.Register (new MyExpressionTransformer());
+			transformerRegistry.Register(new RemoveCharToIntConversion());
+			transformerRegistry.Register(new RemoveRedundantCast());
+			transformerRegistry.Register(new SimplifyCompareTransformer());
 
 			var processor = ExpressionTreeParser.CreateDefaultProcessor(transformerRegistry);
 			// Add custom processors here:
 			// processor.InnerProcessors.Add (new MyExpressionTreeProcessor());
 
-			var expressionTreeParser = new ExpressionTreeParser(nodeTypeProvider, processor);
+			var nodeTypeProvider = new NHibernateNodeTypeProvider();
 
-			_queryParser = new QueryParser(expressionTreeParser);			
+			var expressionTreeParser = new ExpressionTreeParser(nodeTypeProvider, processor);
+			QueryParser = new QueryParser(expressionTreeParser);
 		}
 
 		public static QueryModel Parse(Expression expression)
 		{
-			return _queryParser.GetParsedQuery(expression);
+			return QueryParser.GetParsedQuery(expression);
 		}
 	}
 
@@ -69,6 +69,13 @@ namespace NHibernate.Linq
 						ReflectionHelper.GetMethodDefinition(() => Queryable.AsQueryable(null)),
 						ReflectionHelper.GetMethodDefinition(() => Queryable.AsQueryable<object>(null)),
 					}, typeof(AsQueryableExpressionNode)
+				);
+
+			methodInfoRegistry.Register(
+				new[]
+					{
+						ReflectionHelper.GetMethodDefinition(() => LinqExtensionMethods.Timeout<object>(null, 0)),
+					}, typeof (TimeoutExpressionNode)
 				);
 
 			var nodeTypeProvider = ExpressionTreeParser.CreateDefaultNodeTypeProvider();
@@ -140,6 +147,61 @@ namespace NHibernate.Linq
 		{
 			ParseInfo = parseInfo;
 			Data = data;
+		}
+
+		public override IStreamedData ExecuteInMemory(IStreamedData input)
+		{
+			throw new NotImplementedException();
+		}
+
+		public override IStreamedDataInfo GetOutputDataInfo(IStreamedDataInfo inputInfo)
+		{
+			return inputInfo;
+		}
+
+		public override ResultOperatorBase Clone(CloneContext cloneContext)
+		{
+			throw new NotImplementedException();
+		}
+
+		public override void TransformExpressions(Func<Expression, Expression> transformation)
+		{
+		}
+	}
+
+
+	internal class TimeoutExpressionNode : ResultOperatorExpressionNodeBase
+	{
+		private readonly MethodCallExpressionParseInfo _parseInfo;
+		private readonly ConstantExpression _timeout;
+
+		public TimeoutExpressionNode(MethodCallExpressionParseInfo parseInfo, ConstantExpression timeout)
+			: base(parseInfo, null, null)
+		{
+			_parseInfo = parseInfo;
+			_timeout = timeout;
+		}
+
+		public override Expression Resolve(ParameterExpression inputParameter, Expression expressionToBeResolved, ClauseGenerationContext clauseGenerationContext)
+		{
+			return Source.Resolve(inputParameter, expressionToBeResolved, clauseGenerationContext);
+		}
+
+		protected override ResultOperatorBase CreateResultOperator(ClauseGenerationContext clauseGenerationContext)
+		{
+			return new TimeoutResultOperator(_parseInfo, _timeout);
+		}
+	}
+
+	internal class TimeoutResultOperator : ResultOperatorBase
+	{
+		public MethodCallExpressionParseInfo ParseInfo { get; private set; }
+		public ConstantExpression Timeout { get; private set; }
+
+		public TimeoutResultOperator(MethodCallExpressionParseInfo parseInfo, ConstantExpression timeout)
+		{
+			ParseInfo = parseInfo;
+			Timeout = timeout;
 		}
 
 		public override IStreamedData ExecuteInMemory(IStreamedData input)

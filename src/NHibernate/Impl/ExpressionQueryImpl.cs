@@ -69,8 +69,8 @@ namespace NHibernate.Impl
 		/// <summary> 
 		/// Warning: adds new parameters to the argument by side-effect, as well as mutating the query expression tree!
 		/// </summary>
-		protected IQueryExpression ExpandParameters(IDictionary<string, TypedValue> namedParamsCopy)
-		{
+		protected internal IQueryExpression ExpandParameters(IDictionary<string, TypedValue> namedParamsCopy)
+		{	// TODO: On master, we can make this method protected non-internal again.
 			if (namedParameterLists.Count == 0)
 			{
 				// Short circuit straight out
@@ -109,17 +109,18 @@ namespace NHibernate.Impl
 				map.Add(name, aliases);
 			}
 
+			//TODO: Do we need to translate expression one more time here?
 			IASTNode newTree = ParameterExpander.Expand(QueryExpression.Translate(Session.Factory), map);
 			var key = new StringBuilder(QueryExpression.Key);
 
 			map.Aggregate(key, (sb, kvp) =>
-			                   {
-			                   	sb.Append(' ');
-			                   	sb.Append(kvp.Key);
-			                   	sb.Append(':');
-			                   	kvp.Value.Aggregate(sb, (sb2, str) => sb2.Append(str));
-			                   	return sb;
-			                   });
+							   {
+								sb.Append(' ');
+								sb.Append(kvp.Key);
+								sb.Append(':');
+								kvp.Value.Aggregate(sb, (sb2, str) => sb2.Append(str));
+								return sb;
+							   });
 
 			return new ExpandedQueryExpression(QueryExpression, newTree, key.ToString());
 		}
@@ -131,7 +132,18 @@ namespace NHibernate.Impl
 
 		public override IList<T> List<T>()
 		{
-			throw new NotImplementedException();
+			VerifyParameters();
+			var namedParams = NamedParams;
+			Before();
+			try
+			{
+				//NOTE: We are using cast here because we do not want to change interface signature.
+				return (IList<T>) Session.List(ExpandParameters(namedParams), GetQueryParameters(namedParams));
+			}
+			finally
+			{
+				After();
+			}
 		}
 	}
 

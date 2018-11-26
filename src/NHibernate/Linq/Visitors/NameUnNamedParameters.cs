@@ -4,6 +4,7 @@ using System.Linq.Expressions;
 
 namespace NHibernate.Linq.Visitors
 {
+    [Obsolete("This class is not required by NHibernate anymore.")]
     public class NameUnNamedParameters : NhExpressionTreeVisitor
     {
         public static Expression Visit(Expression expression)
